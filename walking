@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>歩行記録 / TrailLog</title>
+<meta name="theme-color" content="#1C2620">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#1C2620;
+    --surface:#26332B;
+    --surface-2:#2F3D34;
+    --text:#EDEAE0;
+    --text-dim:#98A79B;
+    --accent:#E0902E;
+    --accent-dim:#8a5b21;
+    --stop:#B75B45;
+    --line: rgba(237,234,224,0.12);
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP",sans-serif;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  #app{
+    max-width:460px;
+    margin:0 auto;
+    padding: calc(20px + var(--safe-t)) 20px calc(40px + var(--safe-b));
+    position:relative;
+  }
+  .mono{font-family:"Space Mono",ui-monospace,monospace;}
+  header{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    margin-bottom:22px;
+  }
+  header .brand{
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+  }
+  header .eyebrow{
+    font-size:11px;
+    letter-spacing:0.18em;
+    color:var(--accent);
+    font-weight:700;
+  }
+  header h1{
+    font-size:20px;
+    margin:0;
+    font-weight:700;
+    letter-spacing:0.02em;
+  }
+  .icon-btn{
+    background:var(--surface);
+    border:1px solid var(--line);
+    color:var(--text-dim);
+    border-radius:10px;
+    padding:8px 12px;
+    font-size:12px;
+    letter-spacing:0.04em;
+    cursor:pointer;
+  }
+  .icon-btn:active{ transform:translateY(1px); }
+
+  /* ---- dial / tracker card ---- */
+  .dial-card{
+    position:relative;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:24px;
+    padding:34px 24px 28px;
+    overflow:hidden;
+    text-align:center;
+  }
+  .dial-card svg.contours{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    opacity:0.5;
+    pointer-events:none;
+  }
+  .dial-card .content{ position:relative; z-index:1; }
+  .eyebrow-label{
+    font-size:11px;
+    letter-spacing:0.2em;
+    color:var(--text-dim);
+    margin-bottom:10px;
+  }
+  .timer{
+    font-size:54px;
+    font-weight:700;
+    letter-spacing:0.02em;
+    line-height:1;
+    margin-bottom:22px;
+    font-variant-numeric: tabular-nums;
+  }
+  .status-pill{
+    display:inline-block;
+    font-size:11px;
+    letter-spacing:0.1em;
+    padding:4px 10px;
+    border-radius:20px;
+    background:var(--surface-2);
+    color:var(--text-dim);
+    margin-bottom:18px;
+  }
+  .status-pill.live{ color:var(--accent); }
+  .status-pill.live::before{ content:"● "; }
+
+  .btn-primary{
+    width:100%;
+    padding:16px;
+    border-radius:16px;
+    border:none;
+    font-size:16px;
+    font-weight:700;
+    letter-spacing:0.04em;
+    cursor:pointer;
+    background:var(--accent);
+    color:#1C2620;
+  }
+  .btn-primary.stopping{ background:var(--stop); color:#fff; }
+  .btn-primary:active{ transform:translateY(1px); }
+  .btn-primary:disabled{ opacity:0.5; }
+
+  .live-stats{
+    display:flex;
+    justify-content:space-between;
+    margin-top:14px;
+    padding:0 4px;
+    font-size:12px;
+    color:var(--text-dim);
+  }
+  .live-stats .val{ color:var(--text); font-weight:700; }
+
+  /* ---- summary ---- */
+  #summary{ margin-top:22px; }
+  .summary-card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:20px;
+    padding:22px;
+  }
+  .summary-card h2{
+    font-size:13px;
+    letter-spacing:0.12em;
+    color:var(--text-dim);
+    margin:0 0 16px;
+    font-weight:700;
+  }
+  .stat-row{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:10px;
+    margin-bottom:18px;
+  }
+  .stat-tile{
+    background:var(--surface-2);
+    border-radius:14px;
+    padding:14px 10px;
+    text-align:center;
+  }
+  .stat-tile .n{ font-size:20px; font-weight:700; }
+  .stat-tile .u{ font-size:10px; color:var(--text-dim); letter-spacing:0.08em; margin-top:4px;}
+  .mets-note{
+    font-size:11px;
+    color:var(--text-dim);
+    margin-bottom:16px;
+    line-height:1.6;
+  }
+  .btn-row{ display:flex; gap:10px; }
+  .btn-secondary{
+    flex:1;
+    padding:12px;
+    border-radius:12px;
+    border:1px solid var(--line);
+    background:transparent;
+    color:var(--text);
+    font-size:13px;
+    font-weight:700;
+    cursor:pointer;
+  }
+
+  /* ---- history ---- */
+  #history{ margin-top:34px; }
+  #history h2{
+    font-size:13px;
+    letter-spacing:0.12em;
+    color:var(--text-dim);
+    font-weight:700;
+    margin-bottom:14px;
+  }
+  .history-item{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 4px;
+    border-top:1px solid var(--line);
+    gap:10px;
+  }
+  .history-item:last-child{ border-bottom:1px solid var(--line); }
+  .history-item .date{ font-size:13px; color:var(--text-dim); width:92px; flex-shrink:0; }
+  .history-item .metrics{ display:flex; gap:14px; font-size:13px; flex:1; }
+  .history-item .metrics b{ font-weight:700; }
+  .history-item .actions{ display:flex; gap:6px; }
+  .mini-btn{
+    background:var(--surface-2);
+    border:none;
+    color:var(--text-dim);
+    border-radius:8px;
+    padding:6px 9px;
+    font-size:11px;
+    cursor:pointer;
+  }
+  .mini-btn.danger{ color:var(--stop); }
+  .empty-state{
+    color:var(--text-dim);
+    font-size:13px;
+    padding:18px 4px;
+    text-align:center;
+    border:1px dashed var(--line);
+    border-radius:14px;
+  }
+
+  footer{
+    margin-top:30px;
+    font-size:11px;
+    color:var(--text-dim);
+    line-height:1.7;
+    border-top:1px solid var(--line);
+    padding-top:16px;
+  }
+
+  /* ---- overlay / modal ---- */
+  .overlay{
+    position:fixed; inset:0;
+    background:rgba(10,14,11,0.72);
+    display:flex; align-items:flex-end;
+    justify-content:center;
+    z-index:50;
+    backdrop-filter: blur(2px);
+  }
+  .overlay.hidden{ display:none; }
+  .sheet{
+    width:100%;
+    max-width:460px;
+    background:var(--surface);
+    border-radius:24px 24px 0 0;
+    padding:26px 24px calc(26px + var(--safe-b));
+    border-top:1px solid var(--line);
+  }
+  .sheet h2{ font-size:18px; margin:0 0 6px; }
+  .sheet p{ font-size:13px; color:var(--text-dim); margin:0 0 18px; line-height:1.6; }
+  .field{ margin-bottom:16px; }
+  .field label{ display:block; font-size:11px; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:8px; }
+  .field input{
+    width:100%;
+    background:var(--surface-2);
+    border:1px solid var(--line);
+    color:var(--text);
+    font-size:22px;
+    padding:12px 14px;
+    border-radius:12px;
+    font-family:"Space Mono",monospace;
+  }
+  .field input:focus{ outline:2px solid var(--accent); }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ animation:none !important; transition:none !important; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="brand">
+      <span class="eyebrow">TRAILLOG</span>
+      <h1>歩行記録</h1>
+    </div>
+    <button class="icon-btn mono" id="editWeightBtn">体重設定</button>
+  </header>
+
+  <!-- Tracker -->
+  <section class="dial-card" id="trackerCard">
+    <svg class="contours" viewBox="0 0 400 260" preserveAspectRatio="none">
+      <ellipse cx="200" cy="230" rx="180" ry="70" fill="none" stroke="#9BAA9E" stroke-opacity="0.14" stroke-width="1.5"/>
+      <ellipse cx="200" cy="230" rx="140" ry="52" fill="none" stroke="#9BAA9E" stroke-opacity="0.16" stroke-width="1.5"/>
+      <ellipse cx="200" cy="230" rx="100" ry="36" fill="none" stroke="#9BAA9E" stroke-opacity="0.18" stroke-width="1.5"/>
+      <ellipse cx="200" cy="230" rx="60" ry="22" fill="none" stroke="#E0902E" stroke-opacity="0.3" stroke-width="1.5"/>
+    </svg>
+    <div class="content">
+      <div class="eyebrow-label mono">ELAPSED — 経過時間</div>
+      <div class="timer mono" id="timerDisplay">00:00:00</div>
+      <div class="status-pill mono" id="statusPill">待機中 / READY</div>
+      <button class="btn-primary" id="startStopBtn">記録開始</button>
+      <div class="live-stats mono">
+        <span>距離 <span class="val" id="liveDistance">0.00</span> km</span>
+        <span>測位 <span class="val" id="liveGpsCount">0</span> pt</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Summary (shown after stop) -->
+  <section id="summary" class="hidden">
+    <div class="summary-card">
+      <h2 class="mono">直前の記録 — LAST WALK</h2>
+      <div class="stat-row">
+        <div class="stat-tile">
+          <div class="n mono" id="sumTime">--</div>
+          <div class="u">時間 TIME</div>
+        </div>
+        <div class="stat-tile">
+          <div class="n mono" id="sumDist">--</div>
+          <div class="u">距離 KM</div>
+        </div>
+        <div class="stat-tile">
+          <div class="n mono" id="sumKcal">--</div>
+          <div class="u">消費 KCAL</div>
+        </div>
+      </div>
+      <div class="mets-note" id="metsNote"></div>
+      <div class="btn-row">
+        <button class="btn-secondary mono" id="downloadLastBtn">CSVダウンロード</button>
+        <button class="btn-secondary mono" id="dismissSummaryBtn">閉じる</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- History -->
+  <section id="history">
+    <h2 class="mono">記録履歴 — HISTORY</h2>
+    <div id="historyList"></div>
+  </section>
+
+  <footer>
+    ※ GPSは電波状況により誤差が生じます。バックグラウンド（画面ロック中）は端末やブラウザの仕様により測位が停止・間引かれる場合があります。計測中は画面をオンのままにしておくことを推奨します。
+  </footer>
+</div>
+
+<!-- Setup / weight overlay -->
+<div class="overlay hidden" id="setupOverlay">
+  <div class="sheet">
+    <h2>体重を入力してください</h2>
+    <p>消費カロリーの計算（METs × 体重 × 時間）に使用します。あとから「体重設定」からいつでも変更できます。</p>
+    <div class="field">
+      <label class="mono">体重（kg）</label>
+      <input type="number" id="weightInput" inputmode="decimal" step="0.1" min="20" max="250" placeholder="例: 60.0">
+    </div>
+    <button class="btn-primary" id="saveWeightBtn">保存する</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- storage ----------
+  const LS_WEIGHT = "traillog_weight_kg";
+  const LS_HISTORY = "traillog_history_v1";
+
+  function getWeight(){
+    const v = localStorage.getItem(LS_WEIGHT);
+    return v ? parseFloat(v) : null;
+  }
+  function setWeight(v){ localStorage.setItem(LS_WEIGHT, String(v)); }
+
+  function getHistory(){
+    try{ return JSON.parse(localStorage.getItem(LS_HISTORY) || "[]"); }
+    catch(e){ return []; }
+  }
+  function saveHistory(list){
+    // Cap to most recent 60 walks to keep storage reasonable
+    localStorage.setItem(LS_HISTORY, JSON.stringify(list.slice(0,60)));
+  }
+
+  // ---------- MET table (walking speed -> METs) ----------
+  // Reference tiers for level-ground walking.
+  function metsForSpeedKmh(kmh){
+    if (kmh < 3.2) return 2.0;
+    if (kmh < 4.7) return 2.8;
+    if (kmh < 5.5) return 3.3;
+    if (kmh < 6.4) return 4.3;
+    if (kmh < 7.2) return 5.0;
+    return 6.3;
+  }
+
+  // ---------- geo helpers ----------
+  function haversineKm(lat1, lon1, lat2, lon2){
+    const R = 6371;
+    const dLat = (lat2-lat1) * Math.PI/180;
+    const dLon = (lon2-lon1) * Math.PI/180;
+    const a = Math.sin(dLat/2)**2 +
+              Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180) *
+              Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
+  function fmtHMS(ms){
+    const s = Math.floor(ms/1000);
+    const h = String(Math.floor(s/3600)).padStart(2,"0");
+    const m = String(Math.floor((s%3600)/60)).padStart(2,"0");
+    const sec = String(s%60).padStart(2,"0");
+    return `${h}:${m}:${sec}`;
+  }
+  function fmtDateJP(iso){
+    const d = new Date(iso);
+    return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+  }
+
+  // ---------- DOM refs ----------
+  const el = (id) => document.getElementById(id);
+  const timerDisplay = el("timerDisplay");
+  const statusPill = el("statusPill");
+  const startStopBtn = el("startStopBtn");
+  const liveDistance = el("liveDistance");
+  const liveGpsCount = el("liveGpsCount");
+  const summarySection = el("summary");
+  const sumTime = el("sumTime");
+  const sumDist = el("sumDist");
+  const sumKcal = el("sumKcal");
+  const metsNote = el("metsNote");
+  const downloadLastBtn = el("downloadLastBtn");
+  const dismissSummaryBtn = el("dismissSummaryBtn");
+  const historyList = el("historyList");
+  const setupOverlay = el("setupOverlay");
+  const weightInput = el("weightInput");
+  const saveWeightBtn = el("saveWeightBtn");
+  const editWeightBtn = el("editWeightBtn");
+
+  // ---------- tracking state ----------
+  let tracking = false;
+  let watchId = null;
+  let wakeLock = null;
+  let startTime = null;
+  let tickInterval = null;
+  let points = []; // {t, lat, lon, speed, acc}
+  let distanceKm = 0;
+  let lastAccepted = null;
+  let lastHistoryEntry = null;
+
+  const MAX_ACCURACY_M = 30;      // ignore very inaccurate fixes
+  const MAX_JUMP_MPS = 8;         // ~29km/h, reject implausible GPS jumps
+
+  function requestWakeLock(){
+    if ("wakeLock" in navigator){
+      navigator.wakeLock.request("screen").then(wl => { wakeLock = wl; }).catch(()=>{});
+    }
+  }
+  function releaseWakeLock(){
+    if (wakeLock){ wakeLock.release().catch(()=>{}); wakeLock = null; }
+  }
+
+  function onPosition(pos){
+    const { latitude, longitude, speed, accuracy } = pos.coords;
+    const t = Date.now();
+
+    if (accuracy != null && accuracy > MAX_ACCURACY_M){
+      // still log the raw point for the CSV, but don't use it for distance
+      points.push({t, lat: latitude, lon: longitude, speed, acc: accuracy});
+      liveGpsCount.textContent = points.length;
+      return;
+    }
+
+    if (lastAccepted){
+      const dtSec = (t - lastAccepted.t) / 1000;
+      const segKm = haversineKm(lastAccepted.lat, lastAccepted.lon, latitude, longitude);
+      const impliedMps = dtSec > 0 ? (segKm*1000)/dtSec : 0;
+      if (impliedMps <= MAX_JUMP_MPS){
+        distanceKm += segKm;
+      }
+      // if implausible jump, skip adding distance but still record the point
+    }
+    lastAccepted = {t, lat: latitude, lon: longitude};
+    points.push({t, lat: latitude, lon: longitude, speed, acc: accuracy});
+
+    liveDistance.textContent = distanceKm.toFixed(2);
+    liveGpsCount.textContent = points.length;
+  }
+
+  function onPositionError(err){
+    console.warn("Geolocation error", err);
+    if (err.code === 1){
+      alert("位置情報の利用が許可されていません。ブラウザの設定から位置情報を許可してください。");
+      stopWalk(true);
+    }
+  }
+
+  function tick(){
+    timerDisplay.textContent = fmtHMS(Date.now() - startTime);
+  }
+
+  function startWalk(){
+    const weight = getWeight();
+    if (!weight){ openSetup(); return; }
+    if (!("geolocation" in navigator)){
+      alert("この端末・ブラウザは位置情報（GPS）に対応していません。");
+      return;
+    }
+    tracking = true;
+    points = [];
+    distanceKm = 0;
+    lastAccepted = null;
+    startTime = Date.now();
+    summarySection.classList.add("hidden");
+
+    timerDisplay.textContent = "00:00:00";
+    liveDistance.textContent = "0.00";
+    liveGpsCount.textContent = "0";
+    statusPill.textContent = "計測中 / RECORDING";
+    statusPill.classList.add("live");
+    startStopBtn.textContent = "記録終了";
+    startStopBtn.classList.add("stopping");
+
+    tickInterval = setInterval(tick, 1000);
+    requestWakeLock();
+
+    watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, {
+      enableHighAccuracy: true,
+      maximumAge: 0,
+      timeout: 15000
+    });
+  }
+
+  function stopWalk(silent){
+    if (!tracking) return;
+    tracking = false;
+    if (watchId != null) navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    clearInterval(tickInterval);
+    releaseWakeLock();
+
+    const endTime = Date.now();
+    const durationMs = endTime - startTime;
+    const durationH = durationMs / 3600000;
+    const weight = getWeight();
+    const avgSpeedKmh = durationH > 0 ? distanceKm / durationH : 0;
+    const mets = metsForSpeedKmh(avgSpeedKmh);
+    const calories = mets * weight * durationH;
+
+    statusPill.textContent = "待機中 / READY";
+    statusPill.classList.remove("live");
+    startStopBtn.textContent = "記録開始";
+    startStopBtn.classList.remove("stopping");
+
+    const entry = {
+      id: endTime,
+      date: new Date(startTime).toISOString(),
+      durationMs,
+      distanceKm,
+      calories,
+      mets,
+      avgSpeedKmh,
+      weightKg: weight,
+      points
+    };
+    lastHistoryEntry = entry;
+
+    if (!silent){
+      const list = getHistory();
+      list.unshift(entry);
+      saveHistory(list);
+      renderHistory();
+      showSummary(entry);
+    }
+  }
+
+  function showSummary(entry){
+    sumTime.textContent = fmtHMS(entry.durationMs);
+    sumDist.textContent = entry.distanceKm.toFixed(2);
+    sumKcal.textContent = Math.round(entry.calories);
+    metsNote.textContent = `平均速度 ${entry.avgSpeedKmh.toFixed(1)} km/h ・ 使用METs ${entry.mets.toFixed(1)}（速度から自動判定）・ 体重 ${entry.weightKg} kg`;
+    summarySection.classList.remove("hidden");
+  }
+
+  // ---------- CSV ----------
+  function toCSV(entry){
+    const rows = ["time_iso,elapsed_s,latitude,longitude,speed_mps,accuracy_m"];
+    const t0 = new Date(entry.date).getTime();
+    entry.points.forEach(p => {
+      const elapsed = ((p.t - t0)/1000).toFixed(1);
+      rows.push([
+        new Date(p.t).toISOString(),
+        elapsed,
+        p.lat.toFixed(6),
+        p.lon.toFixed(6),
+        p.speed == null ? "" : p.speed.toFixed(2),
+        p.acc == null ? "" : p.acc.toFixed(1)
+      ].join(","));
+    });
+    return rows.join("\n");
+  }
+
+  function downloadCSV(entry){
+    const csv = toCSV(entry);
+    const blob = new Blob([csv], {type: "text/csv"});
+    const url = URL.createObjectURL(blob);
+    const d = new Date(entry.date);
+    const fname = `walk_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}_${String(d.getHours()).padStart(2,"0")}${String(d.getMinutes()).padStart(2,"0")}.csv`;
+    const a = document.createElement("a");
+    a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  // ---------- history render ----------
+  function renderHistory(){
+    const list = getHistory();
+    if (list.length === 0){
+      historyList.innerHTML = `<div class="empty-state">まだ記録がありません。「記録開始」からウォーキングを始めましょう。</div>`;
+      return;
+    }
+    historyList.innerHTML = "";
+    list.forEach(entry => {
+      const row = document.createElement("div");
+      row.className = "history-item";
+      row.innerHTML = `
+        <div class="date mono">${fmtDateJP(entry.date)}</div>
+        <div class="metrics mono">
+          <span><b>${fmtHMS(entry.durationMs)}</b></span>
+          <span><b>${entry.distanceKm.toFixed(2)}</b>km</span>
+          <span><b>${Math.round(entry.calories)}</b>kcal</span>
+        </div>
+        <div class="actions">
+          <button class="mini-btn mono" data-act="csv" data-id="${entry.id}">CSV</button>
+          <button class="mini-btn danger mono" data-act="del" data-id="${entry.id}">削除</button>
+        </div>`;
+      historyList.appendChild(row);
+    });
+  }
+
+  historyList.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    const id = Number(btn.dataset.id);
+    const list = getHistory();
+    const entry = list.find(x => x.id === id);
+    if (!entry) return;
+    if (btn.dataset.act === "csv"){
+      downloadCSV(entry);
+    } else if (btn.dataset.act === "del"){
+      if (confirm("この記録を削除しますか？")){
+        saveHistory(list.filter(x => x.id !== id));
+        renderHistory();
+      }
+    }
+  });
+
+  // ---------- setup / weight ----------
+  function openSetup(){
+    const w = getWeight();
+    if (w) weightInput.value = w;
+    setupOverlay.classList.remove("hidden");
+  }
+  function closeSetup(){ setupOverlay.classList.add("hidden"); }
+
+  saveWeightBtn.addEventListener("click", () => {
+    const v = parseFloat(weightInput.value);
+    if (!v || v < 20 || v > 250){
+      alert("正しい体重（20〜250kg）を入力してください。");
+      return;
+    }
+    setWeight(v);
+    closeSetup();
+  });
+
+  editWeightBtn.addEventListener("click", openSetup);
+
+  // ---------- buttons ----------
+  startStopBtn.addEventListener("click", () => {
+    if (!tracking) startWalk(); else stopWalk(false);
+  });
+  downloadLastBtn.addEventListener("click", () => {
+    if (lastHistoryEntry) downloadCSV(lastHistoryEntry);
+  });
+  dismissSummaryBtn.addEventListener("click", () => {
+    summarySection.classList.add("hidden");
+  });
+
+  // ---------- init ----------
+  if (!getWeight()) openSetup();
+  renderHistory();
+})();
+</script>
+</body>
+</html>
