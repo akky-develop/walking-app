@@ -24,6 +24,7 @@
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
+  .hidden{ display:none !important; }
   body{
     background:var(--bg);
     color:var(--text);
@@ -118,6 +119,8 @@
   }
   .status-pill.live{ color:var(--accent); }
   .status-pill.live::before{ content:"● "; }
+  .status-pill.paused{ color:var(--text-dim); }
+  .status-pill.paused::before{ content:"❚❚ "; }
 
   .btn-primary{
     width:100%;
@@ -134,6 +137,22 @@
   .btn-primary.stopping{ background:var(--stop); color:#fff; }
   .btn-primary:active{ transform:translateY(1px); }
   .btn-primary:disabled{ opacity:0.5; }
+
+  #activeControls.btn-row .btn-primary{ width:auto; flex:1; }
+  .btn-pause{
+    flex:1;
+    padding:16px;
+    border-radius:16px;
+    border:1px solid var(--accent);
+    background:transparent;
+    color:var(--accent);
+    font-size:14px;
+    font-weight:700;
+    letter-spacing:0.04em;
+    cursor:pointer;
+  }
+  .btn-pause:active{ transform:translateY(1px); }
+  .btn-pause.is-paused{ background:var(--accent); color:#1C2620; }
 
   .live-stats{
     display:flex;
@@ -305,7 +324,13 @@
       <div class="eyebrow-label mono">ELAPSED — 経過時間</div>
       <div class="timer mono" id="timerDisplay">00:00:00</div>
       <div class="status-pill mono" id="statusPill">待機中 / READY</div>
-      <button class="btn-primary" id="startStopBtn">記録開始</button>
+      <div id="idleControls">
+        <button class="btn-primary" id="startBtn">記録開始</button>
+      </div>
+      <div id="activeControls" class="btn-row hidden">
+        <button class="btn-pause mono" id="pauseResumeBtn">一時停止</button>
+        <button class="btn-primary stopping" id="stopBtn">記録終了</button>
+      </div>
       <div class="live-stats mono">
         <span>距離 <span class="val" id="liveDistance">0.00</span> km</span>
         <span>測位 <span class="val" id="liveGpsCount">0</span> pt</span>
@@ -346,7 +371,8 @@
   </section>
 
   <footer>
-    ※ GPSは電波状況により誤差が生じます。バックグラウンド（画面ロック中）は端末やブラウザの仕様により測位が停止・間引かれる場合があります。計測中は画面をオンのままにしておくことを推奨します。
+    ※ GPSは電波状況により誤差が生じます。バックグラウンド（画面ロック中）は端末やブラウザの仕様により測位が停止・間引かれる場合があります。計測中は画面をオンのままにしておくことを推奨します。<br>
+    ※ 「一時停止」中は時間・距離ともにカウントされません。再開すると、一時停止した地点からの移動分から距離の計測を再開します。
   </footer>
 </div>
 
@@ -424,7 +450,11 @@
   const el = (id) => document.getElementById(id);
   const timerDisplay = el("timerDisplay");
   const statusPill = el("statusPill");
-  const startStopBtn = el("startStopBtn");
+  const idleControls = el("idleControls");
+  const activeControls = el("activeControls");
+  const startBtn = el("startBtn");
+  const pauseResumeBtn = el("pauseResumeBtn");
+  const stopBtn = el("stopBtn");
   const liveDistance = el("liveDistance");
   const liveGpsCount = el("liveGpsCount");
   const summarySection = el("summary");
@@ -441,10 +471,13 @@
   const editWeightBtn = el("editWeightBtn");
 
   // ---------- tracking state ----------
-  let tracking = false;
+  // state: "idle" | "tracking" | "paused"
+  let state = "idle";
   let watchId = null;
   let wakeLock = null;
-  let startTime = null;
+  let sessionStartTime = null;   // Date.now() at the very first "記録開始" press (used for the record's date/CSV reference)
+  let segmentStart = null;       // Date.now() when the current active (non-paused) segment began; null while paused
+  let accumulatedMs = 0;         // total active time from completed segments, excluding any paused time
   let tickInterval = null;
   let points = []; // {t, lat, lon, speed, acc}
   let distanceKm = 0;
@@ -498,8 +531,23 @@
     }
   }
 
+  function currentElapsedMs(){
+    if (state === "tracking"){
+      return accumulatedMs + (Date.now() - segmentStart);
+    }
+    return accumulatedMs;
+  }
+
   function tick(){
-    timerDisplay.textContent = fmtHMS(Date.now() - startTime);
+    timerDisplay.textContent = fmtHMS(currentElapsedMs());
+  }
+
+  function startWatch(){
+    watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, {
+      enableHighAccuracy: true,
+      maximumAge: 0,
+      timeout: 15000
+    });
   }
 
   function startWalk(){
@@ -509,41 +557,84 @@
       alert("この端末・ブラウザは位置情報（GPS）に対応していません。");
       return;
     }
-    tracking = true;
+    state = "tracking";
     points = [];
     distanceKm = 0;
     lastAccepted = null;
-    startTime = Date.now();
+    accumulatedMs = 0;
+    sessionStartTime = Date.now();
+    segmentStart = sessionStartTime;
     summarySection.classList.add("hidden");
 
     timerDisplay.textContent = "00:00:00";
     liveDistance.textContent = "0.00";
     liveGpsCount.textContent = "0";
     statusPill.textContent = "計測中 / RECORDING";
+    statusPill.classList.remove("paused");
     statusPill.classList.add("live");
-    startStopBtn.textContent = "記録終了";
-    startStopBtn.classList.add("stopping");
+    idleControls.classList.add("hidden");
+    activeControls.classList.remove("hidden");
+    pauseResumeBtn.textContent = "一時停止";
+    pauseResumeBtn.classList.remove("is-paused");
 
     tickInterval = setInterval(tick, 1000);
     requestWakeLock();
-
-    watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, {
-      enableHighAccuracy: true,
-      maximumAge: 0,
-      timeout: 15000
-    });
+    startWatch();
   }
 
-  function stopWalk(silent){
-    if (!tracking) return;
-    tracking = false;
+  function pauseWalk(){
+    if (state !== "tracking") return;
+    accumulatedMs += Date.now() - segmentStart;
+    segmentStart = null;
+    state = "paused";
+
     if (watchId != null) navigator.geolocation.clearWatch(watchId);
     watchId = null;
     clearInterval(tickInterval);
+    tickInterval = null;
+    // Reset the distance reference point so movement during the pause
+    // (e.g. repositioning to look at the scenery) isn't credited as walking distance.
+    lastAccepted = null;
+
+    timerDisplay.textContent = fmtHMS(accumulatedMs);
+    statusPill.textContent = "一時停止中 / PAUSED";
+    statusPill.classList.remove("live");
+    statusPill.classList.add("paused");
+    pauseResumeBtn.textContent = "再開";
+    pauseResumeBtn.classList.add("is-paused");
+  }
+
+  function resumeWalk(){
+    if (state !== "paused") return;
+    segmentStart = Date.now();
+    state = "tracking";
+
+    statusPill.textContent = "計測中 / RECORDING";
+    statusPill.classList.remove("paused");
+    statusPill.classList.add("live");
+    pauseResumeBtn.textContent = "一時停止";
+    pauseResumeBtn.classList.remove("is-paused");
+
+    tickInterval = setInterval(tick, 1000);
+    requestWakeLock();
+    startWatch();
+  }
+
+  function stopWalk(silent){
+    if (state === "idle") return;
+    if (state === "tracking"){
+      accumulatedMs += Date.now() - segmentStart;
+    }
+    const durationMs = accumulatedMs;
+    state = "idle";
+
+    if (watchId != null) navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    if (tickInterval) clearInterval(tickInterval);
+    tickInterval = null;
     releaseWakeLock();
 
     const endTime = Date.now();
-    const durationMs = endTime - startTime;
     const durationH = durationMs / 3600000;
     const weight = getWeight();
     const avgSpeedKmh = durationH > 0 ? distanceKm / durationH : 0;
@@ -551,13 +642,13 @@
     const calories = mets * weight * durationH;
 
     statusPill.textContent = "待機中 / READY";
-    statusPill.classList.remove("live");
-    startStopBtn.textContent = "記録開始";
-    startStopBtn.classList.remove("stopping");
+    statusPill.classList.remove("live", "paused");
+    idleControls.classList.remove("hidden");
+    activeControls.classList.add("hidden");
 
     const entry = {
       id: endTime,
-      date: new Date(startTime).toISOString(),
+      date: new Date(sessionStartTime).toISOString(),
       durationMs,
       distanceKm,
       calories,
@@ -679,8 +770,11 @@
   editWeightBtn.addEventListener("click", openSetup);
 
   // ---------- buttons ----------
-  startStopBtn.addEventListener("click", () => {
-    if (!tracking) startWalk(); else stopWalk(false);
+  startBtn.addEventListener("click", startWalk);
+  stopBtn.addEventListener("click", () => stopWalk(false));
+  pauseResumeBtn.addEventListener("click", () => {
+    if (state === "tracking") pauseWalk();
+    else if (state === "paused") resumeWalk();
   });
   downloadLastBtn.addEventListener("click", () => {
     if (lastHistoryEntry) downloadCSV(lastHistoryEntry);
